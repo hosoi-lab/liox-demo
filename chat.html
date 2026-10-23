@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIに話しかける｜生コン工場AIアシスタント デモ（ダミーデータ）</title>
+<style>
+/* JARVIS風 HUD テーマ（共通） */
+:root{
+  --bg:#03070f; --bg2:#071324; --panel:rgba(8,26,46,.72);
+  --line:rgba(80,220,255,.28); --line2:rgba(80,220,255,.55);
+  --cyan:#45e3ff; --cyan2:#9af1ff; --text:#e6f6ff; --muted:#8fb1c4;
+  --ok:#3ef0a0; --warn:#ffb547; --bad:#ff5c6c; --idle:#7d93a6; --done:#6fb7ff;
+  --glow:0 0 12px rgba(69,227,255,.45);
+  --font:"Noto Sans JP","Noto Sans CJK JP","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --mono:"Consolas","Roboto Mono","Menlo",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:var(--font); color:var(--text); background:var(--bg);
+  background-image:
+    radial-gradient(1200px 700px at 70% -10%, rgba(30,120,180,.25), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(20,90,140,.22), transparent 60%),
+    linear-gradient(rgba(69,227,255,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(69,227,255,.045) 1px, transparent 1px);
+  background-size:auto,auto,40px 40px,40px 40px;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--cyan)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ヘッダー */
+.hud-header{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:12px 22px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(6,22,40,.95),rgba(4,14,26,.75));
+  position:sticky;top:0;z-index:20;backdrop-filter:blur(6px);
+}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-mark{width:38px;height:38px;flex:none}
+.brand-title{font-size:20px;font-weight:700;letter-spacing:.06em;color:var(--cyan2);text-shadow:var(--glow)}
+.brand-sub{font-size:12px;color:var(--muted);letter-spacing:.08em}
+.hud-nav{display:flex;gap:8px;margin-left:auto}
+.hud-nav a{
+  text-decoration:none;color:var(--muted);border:1px solid var(--line);
+  padding:9px 18px;font-size:16px;border-radius:2px;letter-spacing:.05em;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+}
+.hud-nav a.active{color:#001018;background:var(--cyan);border-color:var(--cyan);font-weight:700;box-shadow:var(--glow)}
+.hud-nav a:not(.active):hover{color:var(--cyan2);border-color:var(--line2)}
+.clock{font-family:var(--mono);color:var(--cyan2);text-align:right;line-height:1.25}
+.clock .t{font-size:24px;text-shadow:var(--glow)}
+.clock .d{font-size:12px;color:var(--muted)}
+
+/* デモ表示 */
+.demo-banner{
+  margin:12px 22px 0;padding:9px 14px;font-size:14px;line-height:1.6;color:#ffe2a8;
+  border:1px solid rgba(255,181,71,.45);background:rgba(255,181,71,.08);border-radius:3px;
+}
+.demo-banner b{color:var(--warn)}
+.tag-dummy{
+  display:inline-block;font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;
+  color:var(--warn);border:1px solid rgba(255,181,71,.6);border-radius:10px;letter-spacing:.05em;
+}
+
+/* パネル（角のブラケット付き） */
+.panel{
+  position:relative;background:var(--panel);border:1px solid var(--line);
+  padding:16px 18px;border-radius:2px;box-shadow:inset 0 0 40px rgba(69,227,255,.04);
+}
+.panel::before,.panel::after{
+  content:"";position:absolute;width:16px;height:16px;border:2px solid var(--cyan);pointer-events:none;
+}
+.panel::before{top:-1px;left:-1px;border-right:none;border-bottom:none}
+.panel::after{bottom:-1px;right:-1px;border-left:none;border-top:none}
+.panel h2{
+  margin:0 0 12px;font-size:17px;font-weight:700;letter-spacing:.08em;color:var(--cyan2);
+  display:flex;align-items:center;gap:8px;
+}
+.panel h2::before{content:"";width:6px;height:6px;background:var(--cyan);box-shadow:var(--glow);transform:rotate(45deg)}
+.panel h2 .sub{margin-left:auto;font-size:13px;font-weight:400;color:var(--muted);letter-spacing:0}
+
+/* ステータス */
+.st{display:inline-flex;align-items:center;gap:6px;font-weight:700;white-space:nowrap}
+.st::before{content:"";width:10px;height:10px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.st.ok{color:var(--ok)} .st.warn{color:var(--warn)} .st.bad{color:var(--bad)} .st.done{color:var(--done)} .st.idle{color:var(--idle)}
+.pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:14px;font-weight:700;border:1px solid currentColor}
+.pill.ok{color:var(--ok)} .pill.warn{color:var(--warn);background:rgba(255,181,71,.1)} .pill.bad{color:var(--bad);background:rgba(255,92,108,.1)} .pill.done{color:var(--done)} .pill.idle{color:var(--idle)}
+
+/* テーブル */
+table.hud{width:100%;border-collapse:collapse;font-size:17px}
+table.hud th{font-size:13px;font-weight:400;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line2);letter-spacing:.05em}
+table.hud td{padding:9px 8px;border-bottom:1px solid rgba(80,220,255,.12);vertical-align:middle}
+table.hud tr.warn td{background:rgba(255,181,71,.06)}
+table.hud tr.bad td{background:rgba(255,92,108,.08)}
+table.hud .r{text-align:right}
+.ng{color:var(--bad);font-weight:700}
+.good{color:var(--ok)}
+
+/* 円形ゲージ */
+.gauge{position:relative;display:inline-block}
+.gauge svg{display:block}
+.gauge .g-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.gauge .g-val{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--cyan2);text-shadow:var(--glow);line-height:1}
+.gauge .g-unit{font-size:13px;color:var(--muted);margin-top:4px}
+.ring-spin{transform-origin:50% 50%;animation:spin 18s linear infinite}
+.ring-spin.rev{animation-direction:reverse;animation-duration:26s}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+
+.footer-note{margin:18px 22px 24px;font-size:12px;color:var(--muted);line-height:1.7}
+@media (prefers-reduced-motion:reduce){.ring-spin{animation:none}}
+
+</style>
+<style>
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;padding:16px 22px;height:calc(100vh - 150px);min-height:560px}
+.chat{display:flex;flex-direction:column;padding:0;min-height:0}
+.chat-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.chat-head h2{margin:0}
+.chat-head .ctrl{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:inherit;font-size:15px;color:var(--cyan2);background:transparent;border:1px solid var(--line2);padding:8px 14px;border-radius:2px;cursor:pointer;min-height:42px}
+.btn:hover{background:rgba(69,227,255,.08)}
+.btn.on{background:rgba(69,227,255,.16);color:#fff;border-color:var(--cyan)}
+.btn.primary{background:var(--cyan);color:#001018;font-weight:700;border-color:var(--cyan);box-shadow:var(--glow)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.msgs{flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:14px;min-height:0}
+.msg{max-width:88%;line-height:1.7;font-size:18px}
+.msg .who{font-size:12px;color:var(--muted);margin-bottom:4px;letter-spacing:.08em}
+.msg .body{padding:12px 16px;border:1px solid var(--line);background:rgba(6,20,36,.85)}
+.msg.user{align-self:flex-end}
+.msg.user .who{text-align:right}
+.msg.user .body{background:rgba(69,227,255,.12);border-color:var(--line2)}
+.msg.ai .body{border-left:3px solid var(--cyan)}
+.msg .body ul{margin:6px 0;padding-left:1.3em}
+.msg .body table.hud{font-size:15px;margin-top:8px}
+.msg .anon{font-size:12px;color:var(--muted);margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.msg .anon b{color:var(--cyan2);font-weight:400}
+.draft{white-space:pre-wrap;border:1px dashed var(--warn);padding:10px 12px;margin-top:8px;background:rgba(255,181,71,.06);font-size:16px}
+.human{font-size:13px;color:var(--warn);margin-top:6px}
+.typing{font-size:14px;color:var(--cyan2);animation:pulse 1s infinite}
+.composer{border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+.confirm{display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--cyan);background:rgba(69,227,255,.08);font-size:17px}
+.confirm.show{display:flex}
+.confirm q{color:#fff;font-weight:700;quotes:"『" "』"}
+.interim{min-height:24px;font-size:16px;color:var(--cyan2)}
+.row{display:flex;gap:10px;align-items:center}
+.mic{
+  flex:none;width:82px;height:82px;border-radius:50%;border:2px solid var(--cyan);background:radial-gradient(circle,rgba(69,227,255,.25),rgba(4,14,26,.9) 70%);
+  color:#fff;font-size:30px;cursor:pointer;position:relative;box-shadow:var(--glow);touch-action:none;user-select:none;-webkit-user-select:none
+}
+.mic small{position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);font-size:11px;color:var(--muted);white-space:nowrap}
+.mic.listening{background:radial-gradient(circle,rgba(255,92,108,.55),rgba(40,6,12,.9) 70%);border-color:var(--bad);box-shadow:0 0 0 6px rgba(255,92,108,.15),0 0 24px rgba(255,92,108,.6)}
+.mic:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
+.txt{flex:1;font-family:inherit;font-size:19px;padding:14px 14px;background:rgba(3,10,20,.9);color:#fff;border:1px solid var(--line2);border-radius:2px;min-width:0}
+.txt:focus{outline:none;border-color:var(--cyan);box-shadow:var(--glow)}
+.side{display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto}
+.core{display:flex;flex-direction:column;align-items:center;gap:8px}
+.core svg{width:210px;height:210px}
+.core .state{font-size:18px;font-weight:700;letter-spacing:.2em;color:var(--cyan2);text-shadow:var(--glow)}
+.core.listening .state{color:var(--bad)}
+.core.listening .c-ring{stroke:#ff5c6c}
+.core.thinking .ring-spin{animation-duration:3s}
+.core.speaking .c-core{animation:pulse .6s infinite}
+.chips{display:flex;flex-direction:column;gap:8px}
+.chip{font-family:inherit;text-align:left;font-size:16px;color:var(--text);background:rgba(6,20,36,.8);border:1px solid var(--line);padding:11px 12px;cursor:pointer;border-radius:2px;min-height:46px}
+.chip:hover{border-color:var(--cyan);color:#fff}
+.chip::before{content:"🗣 ";}
+select.eng{width:100%;font-family:inherit;font-size:15px;padding:10px;background:#04101e;color:var(--text);border:1px solid var(--line2)}
+.small{font-size:13px;color:var(--muted);line-height:1.6}
+.warnbox{display:none;font-size:14px;color:#ffe2a8;border:1px solid rgba(255,181,71,.5);background:rgba(255,181,71,.08);padding:8px 10px}
+.warnbox.show{display:block}
+@media (max-width:980px){
+  .wrap{grid-template-columns:1fr;height:auto}
+  .chat{height:78vh;min-height:520px}
+  .core svg{width:150px;height:150px}
+}
+@media (max-width:560px){.wrap{padding:10px}.msg{max-width:96%;font-size:16px}.mic{width:70px;height:70px}}
+/* スマホ対応（2026-10-23追加：PC・タブレットの見た目は変えない） */
+@media (max-width:980px){.wrap{grid-template-columns:minmax(0,1fr)}select.eng{max-width:100%}}
+@media (max-width:560px){
+  .hud-header{padding:8px 10px;gap:8px}
+  .brand-mark{width:30px;height:30px}
+  .brand-title{font-size:17px}
+  .clock{margin-left:auto}
+  .clock .t{font-size:15px}
+  .clock .d{display:none}
+  .brand-sub{font-size:11px}
+  .hud-nav{order:3;width:100%;margin-left:0}
+  .hud-nav a{flex:1;text-align:center;padding:10px 6px;font-size:15px;min-height:44px}
+  .demo-banner{margin:8px 10px 0;padding:7px 10px;font-size:13px;line-height:1.55}
+  .wrap{padding:8px;gap:12px}
+  .chat{height:calc(100vh - 285px);height:calc(100dvh - 285px);min-height:380px}
+  .chat-head{padding:8px 10px;gap:6px}
+  .chat-head h2{margin:0;font-size:15px}
+  .chat-head .ctrl{gap:6px;margin-left:0;width:100%;flex-wrap:nowrap}
+  .chat-head .btn{font-size:12.5px;padding:4px 6px;min-height:44px;flex:1 1 auto;line-height:1.3}
+  .chat-head #clearBtn{flex:0 0 auto}
+  .msgs{padding:12px 10px;gap:12px}
+  .msg .body{padding:10px 12px}
+  .msg .body table.hud{font-size:14px}
+  .msg .body table.hud td,.msg .body table.hud th{padding:6px 4px}
+  .composer{padding:10px 10px 14px;gap:8px}
+  .confirm{font-size:16px;padding:8px 10px}
+  .confirm .btn{flex:1 1 auto;min-height:44px}
+  .row{gap:8px}
+  .mic{width:64px;height:64px;font-size:26px}
+  .txt{font-size:16px;padding:12px 10px}
+  #send{padding:0 14px!important;min-height:52px}
+  .core svg{width:120px;height:120px}
+  .small{font-size:13px}
+}
+/* スマホ横向き（高さが低い画面） */
+@media (max-height:500px) and (orientation:landscape) and (pointer:coarse){
+  .hud-header{position:static;padding:6px 12px}
+  .clock .d{display:none}
+  .clock .t{font-size:16px}
+  .brand-title{font-size:17px}
+  .brand-mark{width:30px;height:30px}
+  .hud-nav a{padding:8px 12px;font-size:14px;min-height:44px}
+  .demo-banner{font-size:12px;padding:6px 10px;margin:6px 12px 0}
+  .wrap{padding:8px 12px;min-height:0}
+  .chat{height:calc(100vh - 16px);height:calc(100dvh - 16px);min-height:300px}
+  .msgs{padding:10px 12px}
+  .mic{width:58px;height:58px;font-size:24px}
+  .mic small{display:none}
+  .txt{font-size:16px;padding:10px}
+  #send{min-height:48px!important}
+  .core svg{width:110px;height:110px}
+}
+</style>
+</head>
+<body>
+<header class="hud-header">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="#45e3ff" stroke-width="1.2" opacity=".6"/><circle cx="20" cy="20" r="12" fill="none" stroke="#45e3ff" stroke-width="2" stroke-dasharray="6 4"/><circle cx="20" cy="20" r="4" fill="#9af1ff"/></svg>
+    <div><div class="brand-title">工場AIアシスタント</div><div class="brand-sub" id="plantName">VOICE ASSISTANT</div></div>
+  </div>
+  <nav class="hud-nav">
+    <a href="chat.html" class="active">🎙 AIに話しかける</a>
+    <a href="dashboard.html" id="navDash">📊 ダッシュボード</a>
+  </nav>
+  <div class="clock"><div class="t" id="clockT">--:--</div><div class="d" id="clockD"></div></div>
+</header>
+
+<div class="demo-banner"><b>これはデモです（デモ用ダミーデータ）</b>：工場名・現場名・車両番号・数値はすべて架空です。回答は通信を使わない簡易ルールで作っています。<b>本番では、お客さまが選んだAI（Grok / Claude / ChatGPT）または工場内で動くローカルAI</b>が回答し、データは工場内に保存します。AIは下書きと提案まで、確定するのは担当者です。</div>
+
+<main class="wrap">
+  <section class="panel chat">
+    <div class="chat-head">
+      <h2>会話</h2>
+      <div class="ctrl">
+        <button class="btn on" id="ttsBtn" type="button" aria-pressed="true">🔊 読み上げ ON</button>
+        <button class="btn" id="anonBtn" type="button" aria-pressed="false">🔒 AIに送る内容を表示</button>
+        <button class="btn" id="clearBtn" type="button">クリア</button>
+      </div>
+    </div>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+    <div class="composer">
+      <div class="warnbox" id="srWarn"></div>
+      <div class="confirm" id="confirm">
+        <span>「<q id="confirmText"></q>」でよろしいですか？</span>
+        <button class="btn primary" id="cOk" type="button">はい、送信</button>
+        <button class="btn" id="cRetry" type="button">言い直す</button>
+        <button class="btn" id="cEdit" type="button">文字で直す</button>
+      </div>
+      <div class="interim" id="interim"></div>
+      <div class="row">
+        <button class="mic" id="mic" type="button" aria-label="押して話す">🎙<small>押して話す</small></button>
+        <input class="txt" id="txt" type="text" placeholder="例：今日の午後の出荷で遅れそうな現場は？" autocomplete="off" enterkeyhint="send">
+        <button class="btn primary" id="send" type="button" style="min-height:54px;padding:0 20px">送信</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="panel core" id="core">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <g class="ring-spin"><circle class="c-ring" cx="100" cy="100" r="92" fill="none" stroke="#45e3ff" stroke-width="1" stroke-dasharray="3 7" opacity=".7"/></g>
+        <g class="ring-spin rev"><circle class="c-ring" cx="100" cy="100" r="78" fill="none" stroke="#45e3ff" stroke-width="3" stroke-dasharray="40 14 8 14" opacity=".8"/></g>
+        <circle cx="100" cy="100" r="62" fill="none" stroke="rgba(69,227,255,.25)" stroke-width="1"/>
+        <g class="ring-spin"><path d="M100 46 A54 54 0 0 1 154 100" fill="none" stroke="#9af1ff" stroke-width="2"/><path d="M100 154 A54 54 0 0 1 46 100" fill="none" stroke="#9af1ff" stroke-width="2"/></g>
+        <circle class="c-core" cx="100" cy="100" r="30" fill="rgba(69,227,255,.18)" stroke="#45e3ff" stroke-width="2"/>
+        <circle cx="100" cy="100" r="10" fill="#9af1ff"/>
+      </svg>
+      <div class="state" id="coreState">待機中</div>
+      <div class="small" id="srSupport"></div>
+    </section>
+    <section class="panel">
+      <h2>話しかけ例<span class="sub">タップで入力</span></h2>
+      <div class="chips" id="chips"></div>
+    </section>
+    <section class="panel">
+      <h2>回答するAI<span class="sub">お客さまが選択</span></h2>
+      <select class="eng" id="eng" aria-label="回答するAI">
+        <option selected>デモ（簡易ルール・通信なし）</option>
+        <option disabled>Grok（xAI）— 本番で選択</option>
+        <option disabled>Claude（Anthropic）— 本番で選択</option>
+        <option disabled>ChatGPT（OpenAI）— 本番で選択</option>
+        <option disabled>ローカルAI（工場内で動作）— 本番で選択</option>
+      </select>
+      <p class="small">本番では、AIとつなぐ部分を差し替えられる作りにします。名前はIDに置き換えてからAIへ送り、配合の数値や実名は送りません（「🔒 AIに送る内容を表示」で例を確認できます）。</p>
+    </section>
+  </aside>
+</main>
+
+<script>
+/* =========================================================
+   デモ用ダミーデータ（すべて架空）
+   工場名・現場名・車両番号・数値はすべて架空のものです。
+   実在の会社・現場・人物とは関係ありません。
+   ========================================================= */
+window.DEMO = (function () {
+  "use strict";
+
+  var plant = {
+    name: "さくら生コン 第1工場（架空）",
+    demoTime: "10:25",           // ダミーデータの基準時刻（固定）
+    truckCapacity: 4.5           // 1台あたりの積載量 m3（例）
+  };
+
+  // 品質の基準（デモ用の例。実際は契約条件・JIS A 5308 等に従う）
+  var spec = {
+    air: { target: 4.5, tol: 1.5 },       // 空気量 4.5±1.5%
+    temp: { min: 5, max: 35 },            // コンクリート温度 5〜35℃（例）
+    slumpTol: function (target) {         // スランプの許容差（例）
+      if (target <= 2.5) return 1.0;
+      if (target <= 6.5) return 1.5;
+      if (target <= 18) return 2.5;
+      return 1.5;
+    }
+  };
+
+  // 現場別の出荷予定（本日）
+  // status: done=完了 / ok=予定通り / warn=遅延注意
+  var sites = [
+    { id: "D", name: "現場D", label: "緑ヶ丘小学校 体育館改修（架空）", anonId: "現場-03", start: "08:00", end: "09:30", volume: 27,   shipped: 27,   mix: "21-18-20", trucks: [7], status: "done", note: "打設完了（09:28）" },
+    { id: "C", name: "現場C", label: "東町物流倉庫 基礎工事（架空）",   anonId: "現場-05", start: "09:00", end: "12:30", volume: 108,  shipped: 63,   mix: "27-15-20", trucks: [1, 2, 4, 5], status: "ok", note: "打設中。5号車 到着見込み 10:42" },
+    { id: "E", name: "現場E", label: "北浜2丁目 店舗新築（架空）",       anonId: "現場-06", start: "10:00", end: "11:30", volume: 31.5, shipped: 22.5, mix: "24-18-20", trucks: [3, 6], status: "ok", note: "打設中。6号車 荷下ろし待ち" },
+    { id: "F", name: "現場F", label: "さくら台 戸建て基礎3棟（架空）",   anonId: "現場-09", start: "11:45", end: "12:45", volume: 18,   shipped: 0,    mix: "21-15-20", trucks: [3, 7], status: "warn", delayMin: 15, note: "3号車が渋滞で帰着遅れ。初回便 約15分遅れの見込み" },
+    { id: "G", name: "現場G", label: "中央公園 歩道整備（架空）",         anonId: "現場-11", start: "13:00", end: "13:45", volume: 13.5, shipped: 0,    mix: "18-8-20",  trucks: [8], status: "ok", note: "8号車 点検明け（13:00復帰）で対応" },
+    { id: "A", name: "現場A", label: "（仮称）みなと台マンション新築（架空）", anonId: "現場-07", start: "14:00", end: "17:00", volume: 72, shipped: 0, mix: "24-18-20", trucks: [3, 1, 2, 5], status: "warn", delayMin: 15, note: "3号車が渋滞中。到着見込み 約15分遅れ" },
+    { id: "B", name: "現場B", label: "さくら川 護岸補修（架空）",         anonId: "現場-08", start: "15:30", end: "16:30", volume: 22.5, shipped: 0,    mix: "18-8-20",  trucks: [4, 6], status: "warn", note: "打設開始の確認がまだ取れていない" },
+    { id: "H", name: "現場H", label: "西区 物流センター 土間（架空）",   anonId: "現場-12", start: "16:00", end: "17:30", volume: 45,   shipped: 0,    mix: "24-12-20", trucks: [7, 8], status: "ok", note: "" }
+  ];
+
+  // ミキサー車の稼働状況
+  // state: 運搬中 / 荷下ろし中 / 積込中 / 現場待機 / 帰路 / 工場待機 / 点検中
+  var trucks = [
+    { no: 1, state: "運搬中",   level: "ok",   site: "C", place: "東町2丁目 付近（架空）",              eta: "10:31", next: "現場A 14:00便" },
+    { no: 2, state: "荷下ろし中", level: "ok", site: "C", place: "現場C 構内",                          eta: "",      next: "工場へ帰路予定 10:40" },
+    { no: 3, state: "帰路（渋滞）", level: "warn", site: "E", place: "北浜大橋の手前（架空）",   eta: "工場帰着 10:55（通常 10:40）", next: "現場F 11:45便 → 現場A 14:00便", delayMin: 15 },
+    { no: 4, state: "積込中",   level: "ok",   site: "C", place: "工場 積込場",                          eta: "現場C 11:05", next: "現場C" },
+    { no: 5, state: "運搬中",   level: "ok",   site: "C", place: "東町3丁目交差点 付近（架空）",        eta: "10:42", next: "現場A 14:00便" },
+    { no: 6, state: "現場待機", level: "ok",   site: "E", place: "現場E 構内",                          eta: "",      next: "荷下ろし後 帰路" },
+    { no: 7, state: "工場待機", level: "idle", site: "",  place: "工場 駐車場",                          eta: "",      next: "現場F 11:30積込" },
+    { no: 8, state: "点検中",   level: "idle", site: "",  place: "工場 整備場（定期点検）",              eta: "13:00 復帰予定", next: "現場G 13:00便" }
+  ];
+
+  // 品質試験（本日）
+  var testsToday = [
+    { no: 1, time: "08:05", site: "D", mix: "21-18-20", slump: 18.0, air: 4.6, temp: 17, note: "" },
+    { no: 2, time: "08:50", site: "D", mix: "21-18-20", slump: 17.5, air: 4.3, temp: 18, note: "" },
+    { no: 3, time: "09:10", site: "C", mix: "27-15-20", slump: 15.5, air: 4.8, temp: 18, note: "" },
+    { no: 4, time: "09:40", site: "C", mix: "27-15-20", slump: 14.0, air: 6.2, temp: 19, note: "空気量が基準外 → 当該バッチは出荷保留・再調整" },
+    { no: 5, time: "09:55", site: "C", mix: "27-15-20", slump: 15.0, air: 5.1, temp: 19, note: "No.4の再試験" },
+    { no: 6, time: "10:15", site: "E", mix: "24-18-20", slump: 18.5, air: 4.4, temp: 19, note: "" }
+  ];
+
+  // 品質試験（昨日・24-18-20 のみ抜粋）
+  var testsYesterday = [
+    { no: 1, time: "08:20", site: "現場K（架空）", mix: "24-18-20", slump: 18.0, air: 4.5, temp: 18 },
+    { no: 2, time: "09:05", site: "現場K（架空）", mix: "24-18-20", slump: 17.0, air: 4.2, temp: 18 },
+    { no: 3, time: "10:30", site: "現場K（架空）", mix: "24-18-20", slump: 18.5, air: 4.9, temp: 19 },
+    { no: 4, time: "13:10", site: "現場M（架空）", mix: "24-18-20", slump: 19.0, air: 4.0, temp: 20 },
+    { no: 5, time: "14:00", site: "現場M（架空）", mix: "24-18-20", slump: 18.0, air: 4.7, temp: 20 },
+    { no: 6, time: "15:20", site: "現場M（架空）", mix: "24-18-20", slump: 17.5, air: 5.0, temp: 19 }
+  ];
+
+  // 明日の出荷予定
+  var tomorrow = {
+    sites: 9, volume: 412.5, loads: 92, peak: "8時〜10時",
+    weather: "午後 降水確率60%（ダミー）",
+    big: [
+      { name: "現場N（架空）", start: "08:00", volume: 120, mix: "24-18-20" },
+      { name: "現場P（架空）", start: "09:00", volume: 85.5, mix: "27-15-20" },
+      { name: "現場Q（架空）", start: "13:00", volume: 63, mix: "21-18-20" }
+    ],
+    note: "雨天の場合、午後の現場Q・現場Rで打設中止・時間変更の連絡が入る可能性があります。"
+  };
+
+  // プラント稼働状況
+  var plantStatus = {
+    mixer: { state: "稼働中", batchesToday: 25 },
+    pacePerHour: 31.5,                 // 直近1時間の出荷量 m3/h
+    silos: [
+      { name: "セメントサイロ1（普通）", pct: 46, warn: true, note: "午後の出荷量からみて、15時ごろ20%を下回る見込みです。13:30の入荷予定を確認してください" },
+      { name: "セメントサイロ2（高炉B）", pct: 71 },
+      { name: "細骨材（砂）ビン", pct: 68 },
+      { name: "粗骨材（砕石）ビン", pct: 74 },
+      { name: "混和剤タンク", pct: 82 }
+    ],
+    waterTemp: 16,
+    nextDelivery: "セメント 13:30 入荷予定（ダミー）"
+  };
+
+  var alerts = [
+    { level: "warn", title: "3号車 渋滞", text: "北浜大橋の手前で渋滞。現場F 11:45便・現場A 14:00便が約15分遅れる見込み" },
+    { level: "warn", title: "現場B 確認待ち", text: "15:30予定の打設開始の確認がまだ取れていません" },
+    { level: "info", title: "品質 No.4 基準外 → 再試験OK", text: "09:40 現場C 空気量6.2%（基準 3.0〜6.0%）。再試験No.5で5.1%（基準内）" },
+    { level: "warn", title: "セメントサイロ1 残量", text: "残り46%。15時ごろ20%を下回る見込み。13:30の入荷予定を確認してください" },
+    { level: "info", title: "8号車 定期点検", text: "13:00 復帰予定。現場G 13:00便を担当" }
+  ];
+
+  // ---------- 便利関数 ----------
+  function toMin(t) { var p = t.split(":"); return (+p[0]) * 60 + (+p[1]); }
+  function toHHMM(m) { var h = Math.floor(m / 60), mm = m % 60; return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm; }
+  function loads(v) { return Math.ceil(v / plant.truckCapacity); }
+  function mixSlump(mix) { return parseFloat(mix.split("-")[1]); }
+  function judge(t) {
+    var target = mixSlump(t.mix), tol = spec.slumpTol(target);
+    var r = {
+      slump: Math.abs(t.slump - target) <= tol,
+      air: Math.abs(t.air - spec.air.target) <= spec.air.tol,
+      temp: t.temp >= spec.temp.min && t.temp <= spec.temp.max
+    };
+    r.ok = r.slump && r.air && r.temp;
+    r.slumpRange = (target - tol) + "〜" + (target + tol) + "cm";
+    return r;
+  }
+  function siteById(id) { for (var i = 0; i < sites.length; i++) if (sites[i].id === id) return sites[i]; return null; }
+  function truckByNo(n) { for (var i = 0; i < trucks.length; i++) if (trucks[i].no === n) return trucks[i]; return null; }
+  function totals() {
+    var plan = 0, done = 0;
+    sites.forEach(function (s) { plan += s.volume; done += s.shipped; });
+    return { plan: plan, shipped: done, pct: Math.round(done / plan * 100) };
+  }
+  function fmt(v) { return (Math.round(v * 10) / 10).toLocaleString("ja-JP"); }
+
+  return {
+    plant: plant, spec: spec, sites: sites, trucks: trucks,
+    testsToday: testsToday, testsYesterday: testsYesterday,
+    tomorrow: tomorrow, plantStatus: plantStatus, alerts: alerts,
+    util: { toMin: toMin, toHHMM: toHHMM, loads: loads, judge: judge, siteById: siteById, truckByNo: truckByNo, totals: totals, fmt: fmt },
+    statusLabel: { done: "完了", ok: "予定通り", warn: "遅延注意" }
+  };
+})();
+
+</script>
+<script>
+(function () {
+  "use strict";
+  var D = window.DEMO, U = D.util;
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  // ---------------- ヘッダー ----------------
+  $("plantName").textContent = D.plant.name;
+  function tick() {
+    var now = new Date();
+    $("clockT").textContent = "デモ時刻 " + D.plant.demoTime;
+    $("clockD").textContent = now.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  }
+  tick(); setInterval(tick, 30000);
+
+  // ---------------- 文字の正規化 ----------------
+  var KANJI = { "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10 };
+  var KANA = { "いち": 1, "に": 2, "さん": 3, "よん": 4, "し": 4, "ご": 5, "ろく": 6, "なな": 7, "しち": 7, "はち": 8, "きゅう": 9, "く": 9, "じゅう": 10 };
+  function norm(t) {
+    t = (t || "").normalize ? t.normalize("NFKC") : t;
+    t = t.replace(/\s+/g, "").replace(/[？?。、,.!！]/g, function (c) { return c === "、" || c === "," ? "" : c; });
+    t = t.replace(/([一二三四五六七八九十])号/g, function (m, k) { return KANJI[k] + "号"; });
+    t = t.replace(/(いち|さん|よん|ろく|なな|しち|はち|きゅう|じゅう|に|し|ご|く)ごう(しゃ)?/g, function (m, k) { return KANA[k] + "号車"; });
+    t = t.replace(/げんば/g, "現場").replace(/ごうしゃ/g, "号車");
+    t = t.replace(/現場([a-hA-H])/g, function (m, c) { return "現場" + c.toUpperCase(); });
+    t = t.replace(/(\d+)号(?!車)/g, "$1号車");
+    return t;
+  }
+
+  // ---------------- 回答エンジン（ルールベース） ----------------
+  var lastOffer = null;
+  var sitesSorted = D.sites.slice().sort(function (a, b) { return U.toMin(a.start) - U.toMin(b.start); });
+  function findSite(t) { var m = t.match(/現場([A-H])/); return m ? U.siteById(m[1]) : null; }
+
+  function testsTable(list, siteName) {
+    return '<table class="hud"><thead><tr><th>No.</th><th>時刻</th><th>現場</th><th>配合</th><th class="r">スランプ</th><th class="r">空気量</th><th class="r">温度</th><th>判定</th></tr></thead><tbody>' +
+      list.map(function (t) {
+        var j = U.judge(t), s = siteName ? siteName(t) : t.site;
+        function c(ok, v) { return '<td class="r num ' + (ok ? "" : "ng") + '">' + v + '</td>'; }
+        return '<tr class="' + (j.ok ? "" : "bad") + '"><td class="num">' + t.no + '</td><td class="num">' + t.time + '</td><td>' + esc(s) + '</td><td class="num">' + t.mix + '</td>' +
+          c(j.slump, t.slump.toFixed(1) + "cm") + c(j.air, t.air.toFixed(1) + "%") + c(j.temp, t.temp + "℃") +
+          '<td>' + (j.ok ? '<span class="pill ok">基準内</span>' : '<span class="pill bad">基準外</span>') + '</td></tr>';
+      }).join("") + '</tbody></table>';
+  }
+
+  function ansDelays(scope) {
+    var list = sitesSorted.filter(function (s) {
+      var pm = U.toMin(s.start) >= 12 * 60;
+      return scope === "pm" ? pm : scope === "am" ? !pm : true;
+    });
+    var warn = list.filter(function (s) { return s.status === "warn"; });
+    var vol = 0, loads = 0;
+    list.forEach(function (s) { vol += s.volume; loads += U.loads(s.volume); });
+    var label = scope === "pm" ? "午後" : scope === "am" ? "午前" : "本日";
+    var head = label + "の予定は" + list.length + "現場・" + loads + "便（" + U.fmt(vol) + "m³）です。";
+    if (!warn.length) return { html: head + "遅れの可能性がある現場はありません。", speech: head + "遅れの可能性がある現場はありません。" };
+    var items = warn.map(function (s) { return { s: s, line: s.name + "（" + s.start + "予定）：" + s.note }; });
+    var offerSite = warn[0];
+    var html = head + "遅れの可能性があるのは<b>" + warn.length + "件</b>です。<ul>" +
+      items.map(function (i) { return "<li><b>" + esc(i.s.name) + "</b>（" + i.s.start + "予定）：" + esc(i.s.note) + "</li>"; }).join("") +
+      "</ul>" + esc(offerSite.name) + "への連絡文の下書きを作りますか？";
+    var speech = head + "遅れの可能性があるのは" + warn.length + "件です。" + items.map(function (i) { return i.line; }).join("。") + "。" + offerSite.name + "への連絡文の下書きを作りますか？";
+    lastOffer = { type: "draft", site: offerSite.id };
+    return { html: html, speech: speech };
+  }
+
+  function ansTruck(n) {
+    var t = U.truckByNo(n);
+    if (!t) return { html: n + "号車は登録されていません（このデモは1〜" + D.trucks.length + "号車です）。", speech: n + "号車は登録されていません。" };
+    var s = t.site ? U.siteById(t.site) : null, txt;
+    if (t.no === 3) {
+      txt = "3号車は" + t.place + "で渋滞に巻き込まれています。" + t.eta + "の見込みです。次は" + t.next + "の予定で、どちらも約15分遅れる見込みです。";
+    } else if (t.state === "運搬中") {
+      txt = t.no + "号車は" + t.place + "です。" + (s ? s.name + "の到着見込みは" + t.eta + "です。" : "");
+    } else if (t.state === "点検中") {
+      txt = t.no + "号車は" + t.place + "にいます。" + t.eta + "で、次は" + t.next + "です。";
+    } else {
+      txt = t.no + "号車は" + t.state + "（" + t.place + "）です。" + (t.eta ? "見込み：" + t.eta + "。" : "") + "次は" + t.next + "です。";
+    }
+    var html = esc(txt) + '<div style="margin-top:8px"><span class="st ' + t.level + '">' + esc(t.state) + '</span>　📍 ' + esc(t.place) + '</div>';
+    if (t.no === 3) { lastOffer = { type: "draft", site: "A" }; html += "<div style='margin-top:6px'>現場Aへの連絡文の下書きを作りますか？</div>"; txt += "現場Aへの連絡文の下書きを作りますか？"; }
+    return { html: html, speech: txt };
+  }
+
+  function ansTrucks() {
+    var html = "ミキサー車" + D.trucks.length + "台の状況です。<table class='hud'><thead><tr><th>車両</th><th>状況</th><th>位置</th><th>次</th></tr></thead><tbody>" +
+      D.trucks.map(function (t) { return "<tr class='" + (t.level === "warn" ? "warn" : "") + "'><td class='num'>" + t.no + "号車</td><td><span class='st " + t.level + "'>" + esc(t.state) + "</span></td><td>" + esc(t.place) + "</td><td>" + esc(t.next) + "</td></tr>"; }).join("") + "</tbody></table>";
+    var active = D.trucks.filter(function (t) { return t.level !== "idle"; }).length;
+    return { html: html, speech: "ミキサー車は" + D.trucks.length + "台中" + active + "台が稼働中です。3号車が渋滞で遅れています。一覧を画面に出しました。" };
+  }
+
+  function ansTestsToday() {
+    var list = D.testsToday, ng = list.filter(function (t) { return !U.judge(t).ok; });
+    var txt = "本日の試験は" + list.length + "回です。";
+    if (ng.length) {
+      var t = ng[0], s = U.siteById(t.site);
+      txt += (list.length - ng.length) + "回は基準内、" + ng.length + "回（No." + t.no + "・" + t.time + "・" + s.name + "）が空気量" + t.air + "%で基準外でした。当該バッチは出荷保留にし、再試験（No.5）は5.1%で基準内です。スランプと温度はすべて基準内です。";
+    } else txt += "すべて基準内です。";
+    return { html: esc(txt) + testsTable(list, function (t) { var s = U.siteById(t.site); return s ? s.name : t.site; }) + "<div class='small' style='margin-top:4px'>基準はデモ用の例です。</div>", speech: txt + "一覧を画面に出しました。" };
+  }
+
+  function ansTestsYesterday(mix) {
+    var list = D.testsYesterday.filter(function (t) { return !mix || t.mix === mix; });
+    var ng = list.filter(function (t) { return !U.judge(t).ok; }).length;
+    var txt = "昨日は" + (mix ? mix + "で" : "") + list.length + "回試験しています。" + (ng ? ng + "回が基準外です。" : "すべて基準内です。") + "一覧を画面に出しました。";
+    return { html: esc(txt) + testsTable(list), speech: txt };
+  }
+
+  function ansToday() {
+    var T = U.totals(), rest = T.plan - T.shipped;
+    var txt = "本日の出荷予定は" + D.sites.length + "現場・" + U.fmt(T.plan) + "m³です。" + D.plant.demoTime + "時点の出荷実績は" + U.fmt(T.shipped) + "m³（" + T.pct + "%）、残りは" + U.fmt(rest) + "m³です。遅延注意は" + D.sites.filter(function (s) { return s.status === "warn"; }).length + "現場です。";
+    var html = esc(txt) + "<table class='hud'><thead><tr><th>開始</th><th>現場</th><th class='r'>予定</th><th class='r'>出荷済</th><th>状況</th></tr></thead><tbody>" +
+      sitesSorted.map(function (s) { return "<tr class='" + (s.status === "warn" ? "warn" : "") + "'><td class='num'>" + s.start + "</td><td>" + esc(s.name) + "</td><td class='r num'>" + U.fmt(s.volume) + "</td><td class='r num'>" + U.fmt(s.shipped) + "</td><td><span class='pill " + s.status + "'>" + D.statusLabel[s.status] + "</span></td></tr>"; }).join("") + "</tbody></table>";
+    return { html: html, speech: txt };
+  }
+
+  function ansTomorrow() {
+    var T = D.tomorrow;
+    var txt = "明日の出荷予定は" + T.sites + "現場・" + U.fmt(T.volume) + "m³（約" + T.loads + "便）です。ピークは" + T.peak + "です。天気は" + T.weather + "。" + T.note;
+    var html = esc("明日の出荷予定は" + T.sites + "現場・" + U.fmt(T.volume) + "m³（約" + T.loads + "便）です。ピークは" + T.peak + "です。") +
+      "<div style='margin-top:6px'>大口の現場：</div><ul>" + T.big.map(function (b) { return "<li>" + esc(b.name) + "　" + b.start + "〜　<span class='num'>" + U.fmt(b.volume) + "m³</span>（" + b.mix + "）</li>"; }).join("") + "</ul>" +
+      "<div style='color:var(--warn)'>⚠ " + esc(T.weather) + "：" + esc(T.note) + "</div>";
+    return { html: html, speech: txt };
+  }
+
+  function ansSite(s) {
+    var trucks = s.trucks.map(function (n) { return n + "号車"; }).join("・");
+    var txt = s.name + "（" + s.label + "）は" + s.start + "〜" + s.end + "の予定で、" + U.fmt(s.volume) + "m³、配合は" + s.mix + "です。出荷済みは" + U.fmt(s.shipped) + "m³。状況は「" + D.statusLabel[s.status] + "」" + (s.note ? "で、" + s.note : "") + "。担当車両は" + trucks + "です。";
+    if (s.status === "warn") { lastOffer = { type: "draft", site: s.id }; txt += s.name + "への連絡文の下書きを作りますか？"; }
+    return { html: esc(txt).replace("「" + D.statusLabel[s.status] + "」", "<span class='pill " + s.status + "'>" + D.statusLabel[s.status] + "</span>"), speech: txt };
+  }
+
+  function ansShift(s, mins) {
+    var a = U.toMin(s.start) + mins, b = U.toMin(s.end) + mins;
+    var conflicts = [];
+    s.trucks.forEach(function (n) {
+      D.sites.forEach(function (o) {
+        if (o.id === s.id || o.status === "done" || o.trucks.indexOf(n) < 0) return;
+        var oa = U.toMin(o.start), ob = U.toMin(o.end);
+        if (oa < b && ob > a && !(oa < U.toMin(s.end) && ob > U.toMin(s.start))) conflicts.push(n + "号車が" + o.name + "（" + o.start + "〜）と重なります");
+      });
+    });
+    var txt = "【下書き回答】" + s.name + "を" + mins + "分後ろにすると、" + U.toHHMM(a) + "〜" + U.toHHMM(b) + "になります。";
+    txt += conflicts.length ? "影響：" + conflicts.join("。") + "。配車の組み替えが必要です。" : "担当車両（" + s.trucks.map(function (n) { return n + "号車"; }).join("・") + "）の後の予定とは重なりません。";
+    txt += "確定は配車担当の方が行ってください。";
+    return { html: esc(txt) + "<div class='human'>※AIは影響の下書きまで。変更の確定は担当者が行います。</div>", speech: txt };
+  }
+
+  function draftFor(s) {
+    var body;
+    if (s.id === "B") {
+      body = s.name + "（" + s.label + "）ご担当者様\n\nいつもお世話になっております。" + D.plant.name + " 配車係です。\n本日" + s.start + "ご予定の打設について、開始時刻に変更がないかご確認をお願いできますでしょうか。\n変更がある場合は、" + U.toHHMM(U.toMin(s.start) - 90) + "ごろまでにご連絡いただけますと、配車を調整できます。\nよろしくお願いいたします。";
+    } else {
+      var d = s.delayMin || 15, eta = U.toHHMM(U.toMin(s.start) + d);
+      body = s.name + "（" + s.label + "）ご担当者様\n\nいつもお世話になっております。" + D.plant.name + " 配車係です。\n本日" + s.start + "ご予定の1台目ですが、交通渋滞の影響で、到着が約" + d + "分遅れ（" + eta + "ごろ）となる見込みです。\n2台目以降は、間隔を詰めてお届けできるよう調整いたします。\nご迷惑をおかけし申し訳ございません。";
+    }
+    return {
+      html: esc(s.name) + "への連絡文の下書きです。<div class='draft'>" + esc(body) + "</div><div class='human'>※このデモでは送信しません。本番でも、担当者が内容を確認・修正してから送ります。</div>",
+      speech: s.name + "への連絡文の下書きを画面に出しました。内容を確認してから送ってください。"
+    };
+  }
+
+  function ansPlant() {
+    var P = D.plantStatus, w = P.silos.filter(function (s) { return s.warn; });
+    var txt = "練混ぜ設備は" + P.mixer.state + "で、本日" + P.mixer.batchesToday + "バッチ。直近1時間の出荷は" + P.pacePerHour + "m³です。" + (w.length ? w[0].name + "が残り" + w[0].pct + "%で、" + w[0].note + "。" : "");
+    var html = esc(txt) + "<ul>" + P.silos.map(function (s) { return "<li" + (s.warn ? " style='color:var(--warn)'" : "") + ">" + esc(s.name) + "：<span class='num'>" + s.pct + "%</span></li>"; }).join("") + "</ul>";
+    return { html: html, speech: txt };
+  }
+
+  function ansAlerts() {
+    var txt = "注意事項は" + D.alerts.length + "件です。" + D.alerts.map(function (a) { return a.title; }).join("、") + "。";
+    var html = esc("注意事項は" + D.alerts.length + "件です。") + "<ul>" + D.alerts.map(function (a) { return "<li><b style='color:" + (a.level === "warn" ? "var(--warn)" : "var(--cyan2)") + "'>" + esc(a.title) + "</b>：" + esc(a.text) + "</li>"; }).join("") + "</ul>";
+    return { html: html, speech: txt };
+  }
+
+  var HELP = "次のようなことに答えられます（デモ）：今日・午後の出荷で遅れそうな現場／○号車の位置／今日・昨日の試験結果／今日・明日の出荷予定量／現場Aの状況／現場Aを30分後ろにしたら影響は？／プラントの状況／注意事項";
+
+  function answer(raw) {
+    var t = norm(raw), m;
+    if (lastOffer && /^(はい|お願い|おねがい|作って|つくって|うん|頼む|たのむ|よろしく|ok|OK|オーケー|作成|そうして|お願いします)/i.test(t)) {
+      var o = lastOffer; lastOffer = null;
+      if (o.type === "draft") return draftFor(U.siteById(o.site));
+    }
+    if (lastOffer && /^(いいえ|いらない|不要|大丈夫|結構|やめ)/.test(t)) { lastOffer = null; return { html: "承知しました。", speech: "承知しました。" }; }
+    lastOffer = null;
+
+    if (/ヘルプ|何ができ|なにができ|使い方|どんなこと/.test(t)) return { html: esc(HELP), speech: "出荷の遅れ、車両の位置、試験結果、出荷予定量などに答えられます。" };
+
+    if (/(連絡文|下書き|連絡)/.test(t) && findSite(t)) return draftFor(findSite(t));
+
+    if ((m = t.match(/(\d+)分(後ろ|遅らせ|ずら|後に|遅く)/)) || (/(後ろ|遅らせ|ずら)/.test(t) && findSite(t))) {
+      var s0 = findSite(t) || U.siteById("A");
+      return ansShift(s0, m ? parseInt(m[1], 10) : 30);
+    }
+
+    if ((m = t.match(/(\d+)号車/)) && !/一覧|全部|全車|全て|すべて/.test(t)) return ansTruck(parseInt(m[1], 10));
+    if (/ミキサー車|車両|トラック|配車/.test(t) && !/遅れ|遅延/.test(t)) return ansTrucks();
+
+    if (/遅れ|遅延|間に合|おくれ|遅く/.test(t)) return ansDelays(/午後|昼から|夕方/.test(t) ? "pm" : /午前|朝/.test(t) ? "am" : "all");
+
+    if (/スランプ|試験|空気量|品質|温度|検査/.test(t)) {
+      if (/昨日|きのう/.test(t)) { var mx = t.match(/(\d{2})-(\d{1,2})-(\d{2})/); return ansTestsYesterday(mx ? mx[0] : null); }
+      return ansTestsToday();
+    }
+
+    if (/明日|あした|あす/.test(t)) return ansTomorrow();
+
+    var site = findSite(t);
+    if (site) return ansSite(site);
+
+    if (/出荷|予定量|進捗|実績|立米|m³|m3|何台|何便/.test(t)) return ansToday();
+    if (/プラント|サイロ|セメント|骨材|在庫|設備|ミキサ/.test(t)) return ansPlant();
+    if (/アラート|注意|問題|異常|気をつけ|トラブル/.test(t)) return ansAlerts();
+    if (/おはよう|こんにちは|こんばんは/.test(t)) {
+      var T = U.totals();
+      return { html: "おはようございます。本日の出荷予定は" + U.fmt(T.plan) + "m³、遅延注意が2現場あります。「遅れそうな現場は？」と聞いてみてください。", speech: "おはようございます。本日の出荷予定は" + U.fmt(T.plan) + "立米、遅延注意が2現場あります。" };
+    }
+    return { html: "すみません、デモ版ではその質問に答えられません。<div class='small' style='margin-top:6px'>" + esc(HELP) + "</div><div class='small'>※本番では、お客さまが選んだAIが自由な言い方の質問にも答えます。</div>", speech: "すみません、デモ版ではその質問に答えられません。画面の例を参考にしてください。" };
+  }
+
+  // 匿名化イメージ（本番でAIへ送る形の例）
+  function anonymize(text) {
+    var out = norm(text);
+    D.sites.forEach(function (s) { out = out.split(s.label).join(s.anonId).split(s.name).join(s.anonId); });
+    out = out.replace(/(\d+)号車/g, function (m, n) { return "車両-" + (n.length < 2 ? "0" : "") + n; });
+    out = out.replace(/\d{2}-\d{1,2}-\d{2}/g, "配合-xx");
+    return out;
+  }
+
+  // ---------------- 画面 ----------------
+  var msgs = $("msgs"), txt = $("txt"), core = $("core"), coreState = $("coreState");
+  var showAnon = false, ttsOn = true;
+
+  function setCore(state) {
+    core.className = "panel core " + (state || "");
+    coreState.textContent = { listening: "聞き取り中", thinking: "解析中", speaking: "応答中" }[state] || "待機中";
+  }
+  function addMsg(who, html, extra) {
+    var div = document.createElement("div");
+    div.className = "msg " + who;
+    div.innerHTML = '<div class="who">' + (who === "user" ? "あなた" : "AIアシスタント（デモ）") + '</div><div class="body">' + html + (extra || "") + '</div>';
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return div;
+  }
+  function anonHtml(q) {
+    return '<div class="anon" style="' + (showAnon ? "" : "display:none") + '">🔒 本番でAIに送る形（例）：<b>' + esc(anonymize(q)) + '</b><br>実名・配合の数値は工場内に残し、IDに置き換えて送ります。</div>';
+  }
+  function ask(q) {
+    q = (q || "").trim();
+    if (!q) return;
+    hideConfirm();
+    addMsg("user", esc(q), anonHtml(q));
+    txt.value = "";
+    setCore("thinking");
+    var typing = addMsg("ai", '<span class="typing">工場内データを検索中…</span>');
+    setTimeout(function () {
+      var a;
+      try { a = answer(q); } catch (e) { console.error(e); a = { html: "エラーが発生しました。", speech: "" }; }
+      typing.querySelector(".body").innerHTML = a.html;
+      msgs.scrollTop = msgs.scrollHeight;
+      speak(a.speech);
+    }, 650);
+  }
+
+  // 読み上げ（speechSynthesis）
+  var hasTTS = "speechSynthesis" in window, jaVoice = null;
+  function pickVoice() {
+    if (!hasTTS) return;
+    var vs = window.speechSynthesis.getVoices() || [];
+    jaVoice = vs.filter(function (v) { return /^ja/i.test(v.lang); })[0] || null;
+  }
+  if (hasTTS) { pickVoice(); window.speechSynthesis.onvoiceschanged = pickVoice; }
+  function speak(s) {
+    if (!ttsOn || !hasTTS || !s) { setCore(""); return; }
+    try {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(s.replace(/m³/g, "立米").replace(/(\d+)号車/g, "$1号車"));
+      u.lang = "ja-JP"; u.rate = 1.05; if (jaVoice) u.voice = jaVoice;
+      u.onstart = function () { setCore("speaking"); };
+      u.onend = u.onerror = function () { setCore(""); };
+      window.speechSynthesis.speak(u);
+      setTimeout(function () { if (!window.speechSynthesis.speaking) setCore(""); }, 1500);
+    } catch (e) { setCore(""); }
+  }
+  $("ttsBtn").addEventListener("click", function () {
+    ttsOn = !ttsOn;
+    this.classList.toggle("on", ttsOn); this.setAttribute("aria-pressed", ttsOn);
+    this.textContent = ttsOn ? "🔊 読み上げ ON" : "🔇 読み上げ OFF";
+    if (!ttsOn && hasTTS) window.speechSynthesis.cancel();
+  });
+  if (!hasTTS) { $("ttsBtn").disabled = true; $("ttsBtn").textContent = "🔇 読み上げ非対応"; ttsOn = false; }
+  $("anonBtn").addEventListener("click", function () {
+    showAnon = !showAnon;
+    this.classList.toggle("on", showAnon); this.setAttribute("aria-pressed", showAnon);
+    Array.prototype.forEach.call(document.querySelectorAll(".anon"), function (el) { el.style.display = showAnon ? "" : "none"; });
+  });
+  $("clearBtn").addEventListener("click", function () { msgs.innerHTML = ""; lastOffer = null; greet(); });
+
+  $("send").addEventListener("click", function () { ask(txt.value); });
+  txt.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); ask(txt.value); } });
+
+  // 話しかけ例
+  var examples = [
+    "今日の午後の出荷で遅れそうな現場は？",
+    "3号車はいまどこ？",
+    "5号車、今どこ？",
+    "今日のスランプ試験の結果は？",
+    "昨日の24-18-20のスランプ試験、全部見せて",
+    "明日の出荷予定量は？",
+    "今日の出荷の進み具合は？",
+    "現場Aを30分後ろにしたら影響は？",
+    "セメントサイロの残量は？"
+  ];
+  $("chips").innerHTML = examples.map(function (e, i) { return '<button class="chip" type="button" data-i="' + i + '">' + esc(e) + '</button>'; }).join("");
+  $("chips").addEventListener("click", function (e) {
+    var b = e.target.closest(".chip"); if (!b) return;
+    ask(examples[+b.getAttribute("data-i")]);
+  });
+
+  // ---------------- 音声入力（Web Speech API・押して話す） ----------------
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var mic = $("mic"), interim = $("interim"), srWarn = $("srWarn");
+  var rec = null, listening = false, finalText = "", pressAt = 0, holdMode = false;
+
+  function warn(msg) { srWarn.textContent = msg; srWarn.classList.add("show"); }
+  function showConfirm(t) { $("confirmText").textContent = t; $("confirm").classList.add("show"); }
+  function hideConfirm() { $("confirm").classList.remove("show"); }
+  $("cOk").addEventListener("click", function () { ask($("confirmText").textContent); });
+  $("cRetry").addEventListener("click", function () { hideConfirm(); startRec(); });
+  $("cEdit").addEventListener("click", function () { txt.value = $("confirmText").textContent; hideConfirm(); txt.focus(); });
+
+  if (!SR) {
+    mic.disabled = true;
+    $("srSupport").textContent = "このブラウザは音声入力に対応していません。文字で入力してください（Chrome / Edge 推奨）。";
+    warn("このブラウザでは音声入力が使えません。下の欄に文字で入力するか、右の「話しかけ例」をタップしてください。");
+  } else {
+    $("srSupport").textContent = "🎙 を押している間だけ聞き取ります（押して話す方式）。短く押すと、話し終わるまで聞き取ります。";
+    rec = new SR();
+    rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var fin = "", tmp = "";
+      for (var i = 0; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) fin += ev.results[i][0].transcript; else tmp += ev.results[i][0].transcript;
+      }
+      finalText = fin;
+      interim.textContent = "🎙 " + (fin + tmp);
+      if (!holdMode && fin) { try { rec.stop(); } catch (e) {} }
+    };
+    rec.onerror = function (ev) {
+      var m = {
+        "not-allowed": "マイクの使用が許可されていません。アドレスバーのマイクアイコンから許可するか、文字で入力してください。",
+        "service-not-allowed": "このブラウザ・環境では音声認識サービスが使えません。文字で入力してください。",
+        "network": "音声認識サービスに接続できません（Chromeの音声認識はインターネット接続が必要です）。文字で入力してください。",
+        "audio-capture": "マイクが見つかりません。マイクを接続するか、文字で入力してください。",
+        "no-speech": "声が聞き取れませんでした。もう一度、マイクに近づいて話してください。",
+        "aborted": ""
+      }[ev.error];
+      if (m === undefined) m = "音声入力でエラーが発生しました（" + ev.error + "）。文字で入力してください。";
+      if (m) warn(m);
+    };
+    rec.onend = function () {
+      listening = false; mic.classList.remove("listening"); setCore("");
+      var t = (finalText || "").trim() || interim.textContent.replace(/^🎙\s*/, "").trim();
+      interim.textContent = "";
+      if (t) showConfirm(t);
+    };
+  }
+  function startRec() {
+    if (!rec || listening) return;
+    finalText = ""; interim.textContent = "🎙 聞き取り中…"; srWarn.classList.remove("show"); hideConfirm();
+    if (hasTTS) window.speechSynthesis.cancel();
+    try { rec.start(); listening = true; mic.classList.add("listening"); setCore("listening"); }
+    catch (e) { warn("音声入力を開始できませんでした。少し待ってからもう一度押してください。"); }
+  }
+  function stopRec() { if (rec && listening) { try { rec.stop(); } catch (e) {} } }
+
+  mic.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    if (listening) { stopRec(); return; }
+    pressAt = Date.now(); holdMode = true; startRec();
+    try { mic.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  function release() {
+    if (!listening || !holdMode) return;
+    if (Date.now() - pressAt < 400) { holdMode = false; return; }   // 短押し：話し終わるまで聞く
+    stopRec();
+  }
+  mic.addEventListener("pointerup", release);
+  mic.addEventListener("pointercancel", release);
+  mic.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  // スペースキー長押しでも話せる（入力欄にフォーカスがないとき）
+  document.addEventListener("keydown", function (e) {
+    if (e.code === "Space" && !e.repeat && document.activeElement !== txt && rec && !mic.disabled && !/BUTTON|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); pressAt = Date.now(); holdMode = true; startRec(); }
+  });
+  document.addEventListener("keyup", function (e) { if (e.code === "Space" && document.activeElement !== txt) release(); });
+
+  // 初期メッセージ
+  function greet() {
+    addMsg("ai", "おはようございます。" + esc(D.plant.name) + "のAIアシスタント（デモ）です。<br>🎙 を押しながら話すか、下の欄に入力してください。右の「話しかけ例」もタップできます。<div class='small' style='margin-top:6px'>※表示されるデータはすべて架空のダミーデータです。</div>");
+  }
+  greet();
+
+  // ダッシュボードから質問を受け取る（?q=）
+  try {
+    var q = new URLSearchParams(location.search).get("q");
+    if (q) { showConfirm(q); }
+  } catch (e) {}
+
+  // テスト用に公開
+  window.__demoAnswer = answer;
+})();
+
+</script>
+</body>
+</html>
